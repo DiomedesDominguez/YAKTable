@@ -113,7 +113,11 @@ let koTable = function (params) {
     self.canEdit = ko.observable((params && params.canEdit) || self.defaults.canEdit);
     self.canDelete = ko.observable((params && params.canDelete) || self.defaults.canDelete);
 
-    self.frmTitle = ko.observable("");
+    self.isEditForm = ko.observable(false);
+
+    self.frmTitle = ko.computed(function () {
+        return self.isEditForm() ? "Edit record" : "Add new record";
+    }, self);
 
     self.isLoading = ko.observable(false);
     self.searchFor = ko.observable("");
@@ -257,14 +261,13 @@ let koTable = function (params) {
                 let keyValue = null;
                 self.fields().forEach(field => {
                     if (field.key()) {
-                        keyValue = "{\"" + field.dataMember() + "\":\"" + record[field.dataMember()]() + "\"}";
+                        keyValue = record[field.dataMember()]();
                         return false;
                     }
                 });
-                executePost(self.deleteAction(), keyValue, function (data, textStatus, jqXHR) {
-                    if (data.result != undefined) {
+                executeAjax(self.deleteAction() + "/" + keyValue, "DELETE", null, function (data, textStatus, jqXHR) {
+                    if (data.result !== undefined) {
                         if (data.result === 0 || data.result === "OK") {
-                            self.records.remove(record);
                             showToast("Your record has been deleted.", "success");
                             self.Load();
                             return;
@@ -298,9 +301,7 @@ let koTable = function (params) {
     };
 
     let showForm = function (isEdit) {
-
-        self.frmTitle(isEdit ? "Edit record" : "Add new record");
-        self.actionForm(isEdit ? self.updateAction() : self.createAction());
+        self.isEditForm(isEdit);
 
         let _modalDiv = $(event.target).closest(".card").find(".modal");
         _modalDiv.modal("show");
@@ -313,15 +314,19 @@ let koTable = function (params) {
         if (_frm.valid()) {
             _frm.submit(function (e) {
                 $(event.target).attr("disabled", "disabled");
-                let postData = $(this).serializeArray();
-                executePost(self.actionForm(), postData, function (data, textStatus, jqXHR) {
+                let formData = {};
+                $(this).serializeArray().forEach((v, k) => formData[v.name] = v.value);
+                let postData = JSON.stringify(formData);
+                let actionForm = self.isEditForm() === true ? self.updateAction() : self.createAction();
+                let actionMethod = self.isEditForm() === true ? "PUT" : "POST";
+
+                executeAjax(actionForm, actionMethod, postData, function (data, textStatus, jqXHR) {
                     if (data.result != undefined) {
                         if (data.result === 0 || data.result === "OK") {
                             showToast("Record saved", "success");
                             let _modalDiv = $(event.target).closest(".card").find(".modal");
                             _modalDiv.modal("hide");
                             self.Load();
-                            self.actionForm("");
                             $(event.target).removeAttr("disabled");
                             return;
                         }
@@ -355,22 +360,29 @@ let koTable = function (params) {
         });
     };
     /**
-     * Execute a POST Invocation. TODO: create an execute AJAX method for PUT and DELETE.
-     * @param {string} postUrl - The URL to be used in the AJAX POST.
+     * Execute an AJAX Invocation.
+     * @param {string} url - The URL to be used in the AJAX.
+     * @param {string} type - The type of invocation: POST, GET, PUT, DELETE.
      * @param {object} postData - The data to be sent in the body.
      * @param {Function} onSuccess - The function definition for a successful execution.
      * @param {Function} onError - The function definition for a failed execution.
      **/
-    let executePost = function (postUrl, postData, onSuccess, onError) {
+    let executeAjax = function (url, type, data, onSuccess, onError) {
         if (onError === null || onError === undefined || onError === 'undefined') {
             onError = function (jqXHR, textStatus, errorThrown) {
                 showToast("Something went wrong! Please contact support", "error");
             };
         }
+
+        if (!(type === "GET" || type === "POST" || type === "PUT" || type === "DELETE")) {
+            showToast("Non implemented AJAX method: " + type, "error");
+            return;
+        }
         $.ajax({
-            url: postUrl,
-            type: "POST",
-            data: postData,
+            url: url,
+            type: type,
+            contentType: "application/json",
+            data: data,
             success: onSuccess,
             error: onError
         });
